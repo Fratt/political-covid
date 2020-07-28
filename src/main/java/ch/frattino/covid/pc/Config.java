@@ -4,16 +4,22 @@ import java.util.Properties;
 
 public class Config {
 
-    private String csvSource;
+    private String covidInput;
+    private String populationInput;
     private String output;
 
     public Config(Properties p) {
-        this.csvSource = p.getProperty("csvSource");
+        this.covidInput = p.getProperty("covidInput");
+        this.populationInput = p.getProperty("populationInput");
         this.output = p.getProperty("output");
     }
 
-    public String getCsvSource() {
-        return csvSource;
+    public String getCovidInput() {
+        return covidInput;
+    }
+
+    public String getPopulationInput() {
+        return populationInput;
     }
 
     public String getOutput() {

@@ -11,10 +11,14 @@ public class PoliticalCovid {
 
     private Config config;
 
-    private List<String> rawData = new ArrayList<>();
+    // Raw data
+    private List<String> rawCovidData = new ArrayList<>();
+    private List<String> rawPopulationData = new ArrayList<>();
+
     private List<String> states = new ArrayList<>();
+    private Map<String, Integer> populations = new HashMap<>();
     // date -> (state -> cases)
-    private Map<Date, Map<String, Integer>> parsedData = new HashMap<>();
+    private Map<Date, Map<String, Double>> parsedData = new HashMap<>();
     private List<String> graphData = new ArrayList<>();
 
     public PoliticalCovid(Config config) {
@@ -22,22 +26,25 @@ public class PoliticalCovid {
     }
 
     public void run() {
-        // We grab the raw data
-        try {
-            grabRawData();
-        } catch (IOException e) {
-            System.err.println("Impossible to grab raw data!");
-            e.printStackTrace();
+
+        // We grab the raw population data
+        if (!grabRawPopulationData()) {
             return;
         }
+        // We parse the population data
+        parsePopulationData();
 
-        // We parse the data
-        parseData();
+        // We grab the raw COVID data
+        if (!grabRawCovidData()) {
+            return;
+        }
+        // We parse the COVID data
+        parseCovidData();
 
         // We compute the graph data
         computeGraphData();
 
-        // We print the graph data
+        // We print the graph data (number of cases)
         try {
             printGraphData();
         } catch (IOException e) {
@@ -45,25 +52,29 @@ public class PoliticalCovid {
             e.printStackTrace();
             return;
         }
+
+        // We print the graph data (number of cases / population)
+
     }
 
-    public void grabRawData() throws IOException {
-        System.out.println("Obtaining raw data from " + config.getCsvSource() + "...");
-        URL url = new URL(config.getCsvSource());
-        try (BufferedReader fr = new BufferedReader(new InputStreamReader(url.openStream()))) {
-            String line;
-            while ((line = fr.readLine()) != null) {
-                rawData.add(line);
-            }
+    public boolean grabRawCovidData() {
+        URL url = Helpers.toUrl(config.getCovidInput());
+        if (url == null) {
+            return false;
         }
-        // We drop the first line
-        rawData.remove(0);
-        System.out.println("Raw data obtained! (" + rawData.size() + " lines)");
+        System.out.println("Obtaining raw COVID data from " + url + "...");
+        rawCovidData = Helpers.readTextFileFromUrl(url, true);
+        if (rawCovidData == null) {
+            return false;
+        }
+        System.out.println("Raw COVID data obtained! (" + rawCovidData.size() + " lines)");
+        return true;
     }
 
-    public void parseData() {
-        System.out.println("Parsing data...");
-        for (String line : rawData) {
+    public void parseCovidData() {
+        Set<String> skippedStates = new HashSet<>();
+        System.out.println("Parsing COVID data...");
+        for (String line : rawCovidData) {
             Date date;
             String state;
             Integer cases;
@@ -78,23 +89,62 @@ public class PoliticalCovid {
                 e.printStackTrace();
                 continue;
             }
+            // If we don't have a population for this state, skip!
+            if (!populations.containsKey(state)) {
+                skippedStates.add(state);
+                continue;
+            }
             // We update the "states" list
             if (!states.contains(state)) {
                 states.add(state);
             }
             // We update the "data" list
             if (!parsedData.containsKey(date)) {
-                parsedData.put(date, new HashMap<String, Integer>());
+                parsedData.put(date, new HashMap<String, Double>());
             }
-            parsedData.get(date).put(state, cases);
+            parsedData.get(date).put(state, (1000000 * cases.doubleValue()) / populations.get(state).doubleValue());
         }
         // We sort the states alphabetically
         Collections.sort(states);
-        System.out.println("Data parsed! (" + parsedData.size() + " days)");
+        System.out.println("COVID data parsed! (" + parsedData.size() + " days)");
+        if (skippedStates.size() > 0) {
+            System.out.println("The following states have been skipped because no population data was found: " + skippedStates);
+        }
+    }
+
+    public boolean grabRawPopulationData() {
+        URL url = Helpers.toUrl(config.getPopulationInput());
+        if (url == null) {
+            return false;
+        }
+        System.out.println("Obtaining raw population data from " + url + "...");
+        rawPopulationData = Helpers.readTextFileFromUrl(url, true);
+        System.out.println("Raw population data obtained! (" + rawPopulationData.size() + " states)");
+        if (rawPopulationData == null) {
+            return false;
+        }
+        return true;
+    }
+
+    public void parsePopulationData() {
+        System.out.println("Parsing population data...");
+        for (String line : rawPopulationData) {
+            String state;
+            Integer population;
+            // state,state_name,geo_id,population,pop_density
+            // AL,Alabama,01,4887871,96.50938865
+            String[] tokens = line.split(",");
+            state = tokens[1];
+            population = Integer.parseInt(tokens[3]);
+            populations.put(state, population);
+        }
+        System.out.println("COVID data parsed! (" + populations.size() + " states)");
+
     }
 
     public void computeGraphData() {
         System.out.println("Computing graph data...");
+
         // We compute the header
         graphData.add("date," + states.stream().collect(Collectors.joining(",")));
 
@@ -102,11 +152,11 @@ public class PoliticalCovid {
         List<Date> dates = new ArrayList<>(parsedData.keySet());
         Collections.sort(dates);
         for (Date date : dates) {
-            String line = new SimpleDateFormat("dd.MM.yyyy").format(date);
+            String line = new SimpleDateFormat("yyyy-MM-dd").format(date);
             for (String state : states) {
-                Map<String, Integer> subData = parsedData.get(date);
+                Map<String, Double> subData = parsedData.get(date);
                 if (subData.containsKey(state)) {
-                    line += "," + subData.get(state);
+                    line += "," + String.format("%.2f", subData.get(state));
                 } else {
                     line += ",0";
                 }
